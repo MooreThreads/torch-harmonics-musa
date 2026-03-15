@@ -29,9 +29,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "attention_cuda.muh"
-#include <ATen/detail/TensorInfo.h>
-#include <ATen/detail/KernelUtils.h>
-#include <ATen/detail/IndexUtils.h>
+#include <ATen/musa/detail/TensorInfo.muh>
+#include <ATen/musa/detail/KernelUtils.h>
+#include <ATen/musa/detail/IndexUtils.muh>
 #include "torch_musa/csrc/aten/musa/MUSAContext.h"
 
 #include <musa_runtime.h>
@@ -572,12 +572,12 @@ torch::Tensor s2_attention_fwd_cuda(at::Tensor kx,
     // convert precision back to starting
     y = y.to(qy_type);
 
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    C10_MUSA_KERNEL_LAUNCH_CHECK();
 
     return y;
 }
 
-TORCH_LIBRARY_IMPL(attention_kernels, CUDA, m)
+TORCH_LIBRARY_IMPL(attention_kernels, PrivateUse1, m)
 {
     m.impl("forward",  &s2_attention_fwd_cuda);
 }

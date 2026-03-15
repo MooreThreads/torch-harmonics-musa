@@ -147,12 +147,15 @@ def get_ext_modules():
             print(f"Compiling custom MUSA kernels for torch-harmonics.")
 
             # DISCO
+            # Note: disco_cuda_bwd.mu excluded due to mcc backend limitation
+            # with shared memory access patterns (Cannot select: store/load addrspace 3).
+            # The CPU backward fallback will be used instead.
             disco_sources = [
                 "torch_harmonics/disco/csrc_musa/disco_interface.cpp",
                 "torch_harmonics/disco/csrc_musa/disco_cpu.cpp",
                 "torch_harmonics/disco/csrc_musa/disco_cuda_fwd.mu",
-                "torch_harmonics/disco/csrc_musa/disco_cuda_bwd.mu",
             ]
+            disco_compile_args = get_compile_args("disco")
             ext_modules.append(
                 MUSAExtension(
                     "torch_harmonics.disco._C",
@@ -161,19 +164,21 @@ def get_ext_modules():
                         os.path.abspath("torch_harmonics/disco/csrc_musa"),
                         os.path.abspath("torch_harmonics/disco/csrc"),
                     ],
-                    extra_compile_args=get_compile_args("disco")
+                    extra_compile_args=disco_compile_args
                 )
             )
             cmdclass["build_ext"] = BuildExtension
 
             # ATTENTION
+            # Note: attention_cuda_bwd.mu excluded due to mcc backend limitation
+            # with vector float operations (Cannot select: v5f32 = fmul).
+            # The CPU backward fallback will be used instead.
             attention_sources = [
                 "torch_harmonics/attention/csrc_musa/attention_interface.cpp",
                 "torch_harmonics/attention/csrc_musa/attention_cpu_fwd.cpp",
                 "torch_harmonics/attention/csrc_musa/attention_cpu_bwd.cpp",
                 "torch_harmonics/attention/csrc_musa/attention_cuda_utils.mu",
                 "torch_harmonics/attention/csrc_musa/attention_cuda_fwd.mu",
-                "torch_harmonics/attention/csrc_musa/attention_cuda_bwd.mu",
             ]
             ext_modules.append(
                 MUSAExtension(

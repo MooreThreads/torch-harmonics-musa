@@ -32,9 +32,9 @@
 #include "c10/core/MemoryFormat.h"
 
 #include <ATen/core/TensorAccessor.h>
-#include <ATen/detail/TensorInfo.h>
-#include <ATen/detail/KernelUtils.h>
-#include <ATen/detail/IndexUtils.h>
+#include <ATen/musa/detail/TensorInfo.muh>
+#include <ATen/musa/detail/KernelUtils.h>
+#include <ATen/musa/detail/IndexUtils.muh>
 #include "torch_musa/csrc/aten/musa/MUSAContext.h"
 
 #include <ctime>
@@ -1065,7 +1065,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> s2_attention_bwd_dkvq_cuda(at::Te
     return std::make_tuple(dkx, dvx, dqy);
 }
 
-TORCH_LIBRARY_IMPL(attention_kernels, CUDA, m)
+TORCH_LIBRARY_IMPL(attention_kernels, PrivateUse1, m)
 {
     m.impl("backward",  &s2_attention_bwd_dkvq_cuda);
 }

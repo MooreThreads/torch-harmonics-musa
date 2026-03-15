@@ -57,10 +57,11 @@ __device__ void disco_bwd_d(const int Hi, const int Wi, const int K, const int H
     inp += bidy * K * Hi * Wi + ker * Hi * Wi + row * Wi;
     out += bidy * Ho * Wo;
 
-    // align to larger supported fp type
-    extern __shared__ __align__(sizeof(double)) unsigned char __sh_ptr[]; // COMPUTE_T __sh[2*(BDIM_X*ELXTH)*pscale]
+    // Use 1D shared memory access to avoid mcc backend issues with 2D array casts
+    extern __shared__ __align__(sizeof(double)) unsigned char __sh_ptr[];
+    const int __sh_stride = BDIM_X * ELXTH * 2;
 
-    COMPUTE_T(*__sh)[BDIM_X * ELXTH * 2] = reinterpret_cast<COMPUTE_T(*)[BDIM_X * ELXTH * 2]>(__sh_ptr);
+    COMPUTE_T* __sh_flat = reinterpret_cast<COMPUTE_T*>(__sh_ptr);
 
     // copy current inp row in regs
     COMPUTE_T __reg[ELXTH];
@@ -68,13 +69,10 @@ __device__ void disco_bwd_d(const int Hi, const int Wi, const int K, const int H
 #pragma unroll
     for (int i = 0; i < ELXTH; i++) { __reg[i] = (i * BDIM_X + tid < Wi) ? static_cast<COMPUTE_T>(inp[i * BDIM_X + tid]) : static_cast<COMPUTE_T>(0); }
 
-    // reset shared row up to Wo+2, remaining
-    // ppscale*(BDIM_X*ELXTH - Wo) locations
-    // will be written to but never copied to
-    // global mem
+    // reset shared row
     for (int i = 0; i < pscale; i++) {
 #pragma unroll
-        for (int j = 0; j < 2 * BDIM_X * ELXTH; j += BDIM_X) { __sh[i][j + tid] = static_cast<COMPUTE_T>(0); }
+        for (int j = 0; j < 2 * BDIM_X * ELXTH; j += BDIM_X) { __sh_flat[i * __sh_stride + j + tid] = static_cast<COMPUTE_T>(0); }
     }
     __syncthreads();
 
@@ -89,22 +87,17 @@ __device__ void disco_bwd_d(const int Hi, const int Wi, const int K, const int H
         const int col = cols[nz];
         const COMPUTE_T val = vals[nz];
 
-        // if we are processing a nz with a col value
-        // leading to a new row of inp then copy it
-        // to shmem;
-        // we read a col that points to a new output
-        // row if (col / Wo) > (col_prev / Wo)
         if (col >= col_prev - w_prev + Wo) {
             __syncthreads();
             for (int i = 0; i < pscale; i++) {
                 for (int j = tid; j < Wi; j += BDIM_X) {
 
-                    const COMPUTE_T v = __sh[i][j] + __sh[i][Wi + j];
+                    const COMPUTE_T v = __sh_flat[i * __sh_stride + j] + __sh_flat[i * __sh_stride + Wi + j];
 
                     atomicAdd(&out[h_prev * Wo + j * pscale + i], v);
 
-                    __sh[i][j] = static_cast<COMPUTE_T>(0);
-                    __sh[i][Wi + j] = static_cast<COMPUTE_T>(0);
+                    __sh_flat[i * __sh_stride + j] = static_cast<COMPUTE_T>(0);
+                    __sh_flat[i * __sh_stride + Wi + j] = static_cast<COMPUTE_T>(0);
                 }
             }
             __syncthreads();
@@ -122,11 +115,9 @@ __device__ void disco_bwd_d(const int Hi, const int Wi, const int K, const int H
         for (int i = 0; i < ELXTH; i++) {
 
             const int pp = i * BDIM_X + tid;
-            __sh[w_mod_ps][w_div_ps + pp] += val * __reg[i];
+            __sh_flat[w_mod_ps * __sh_stride + w_div_ps + pp] += val * __reg[i];
         }
 
-        // to avoid race conditions on __sh[]
-        // among consecutive iterations along nz
         __syncthreads();
     }
     __syncthreads();
@@ -136,7 +127,7 @@ __device__ void disco_bwd_d(const int Hi, const int Wi, const int K, const int H
 
         for (int j = tid; j < Wi; j += BDIM_X) {
 
-            const COMPUTE_T v = __sh[i][j] + __sh[i][Wi + j];
+            const COMPUTE_T v = __sh_flat[i * __sh_stride + j] + __sh_flat[i * __sh_stride + Wi + j];
             atomicAdd(&out[h_prev * Wo + j * pscale + i], v);
         }
     }
@@ -233,7 +224,7 @@ static void launch_kernel(int BC, int Hi, int Wi, int K, int Ho, int Wo, int64_t
         static_assert(0 == (ELXTH_MAX % 2));
 
         if (Wo <= 64 * ELXTH_MAX) {
-            AT_DISPATCH_FLOATING_TYPES(inp.scalar_type(), "disco_backward_cuda", ([&] {
+            AT_DISPATCH_SWITCH(inp.scalar_type(), "disco_backward_musa", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
                 using storage_t = scalar_t;
                 using compute_t = typename at::opmath_type<storage_t>;
                 launch_kernel<64, 1, storage_t, compute_t>(
@@ -243,7 +234,7 @@ static void launch_kernel(int BC, int Hi, int Wi, int K, int Ho, int Wo, int64_t
                     inp.data_ptr<storage_t>(), out.data_ptr<compute_t>(), stream);
                 }));
         } else if (Wo <= 128 * ELXTH_MAX) {
-            AT_DISPATCH_FLOATING_TYPES(inp.scalar_type(), "disco_backward_cuda", ([&] {
+            AT_DISPATCH_SWITCH(inp.scalar_type(), "disco_backward_musa", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
                 using storage_t = scalar_t;
                 using compute_t = typename at::opmath_type<storage_t>;
                 launch_kernel<128, (ELXTH_MAX / 2) + 1, storage_t, compute_t>(
@@ -253,7 +244,7 @@ static void launch_kernel(int BC, int Hi, int Wi, int K, int Ho, int Wo, int64_t
                     inp.data_ptr<storage_t>(), out.data_ptr<compute_t>(), stream);
                 }));
         } else if (Wo <= 256 * ELXTH_MAX) {
-            AT_DISPATCH_FLOATING_TYPES(inp.scalar_type(), "disco_backward_cuda", ([&] {
+            AT_DISPATCH_SWITCH(inp.scalar_type(), "disco_backward_musa", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
                 using storage_t = scalar_t;
                 using compute_t = typename at::opmath_type<storage_t>;
                 launch_kernel<256, (ELXTH_MAX / 2) + 1, storage_t, compute_t>(
@@ -263,7 +254,7 @@ static void launch_kernel(int BC, int Hi, int Wi, int K, int Ho, int Wo, int64_t
                     inp.data_ptr<storage_t>(), out.data_ptr<compute_t>(), stream);
                 }));
         } else if (Wo <= 512 * ELXTH_MAX) {
-            AT_DISPATCH_FLOATING_TYPES(inp.scalar_type(), "disco_backward_cuda", ([&] {
+            AT_DISPATCH_SWITCH(inp.scalar_type(), "disco_backward_musa", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
                 using storage_t = scalar_t;
                 using compute_t = typename at::opmath_type<storage_t>;
                 launch_kernel<512, (ELXTH_MAX / 2) + 1, storage_t, compute_t>(
@@ -273,7 +264,7 @@ static void launch_kernel(int BC, int Hi, int Wi, int K, int Ho, int Wo, int64_t
                     inp.data_ptr<storage_t>(), out.data_ptr<compute_t>(), stream);
                 }));
         } else if (Wo <= 1024 * ELXTH_MAX) {
-            AT_DISPATCH_FLOATING_TYPES(inp.scalar_type(), "disco_backward_cuda", ([&] {
+            AT_DISPATCH_SWITCH(inp.scalar_type(), "disco_backward_musa", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
                 using storage_t = scalar_t;
                 using compute_t = typename at::opmath_type<storage_t>;
                 launch_kernel<1024, (ELXTH_MAX / 2) + 1, storage_t, compute_t>(

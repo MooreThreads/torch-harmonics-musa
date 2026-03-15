@@ -30,9 +30,9 @@
 
 #include "attention_cuda_utils.muh"
 
-#include <ATen/detail/TensorInfo.h>
-#include <ATen/detail/KernelUtils.h>
-#include <ATen/detail/IndexUtils.h>
+#include <ATen/musa/detail/TensorInfo.muh>
+#include <ATen/musa/detail/KernelUtils.h>
+#include <ATen/musa/detail/IndexUtils.muh>
 
 #include <musa_runtime.h>
 
@@ -130,12 +130,12 @@ at::Tensor permute_4D_to0231(at::Tensor src) {
 
     // to be further specialized for additional archs, if necessary
     if (ptxv < 100) {
-        AT_DISPATCH_FLOATING_TYPES(src.scalar_type(), "permute_to0231_k_tile_generic", ([&] {
+        AT_DISPATCH_SWITCH(src.scalar_type(), "permute_to0231_k_tile_generic", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
             launch_permute_to0231<TRANSP_WARPS_X_TILE_GENERIC, scalar_t>(src, dst);
         }));
         CHECK_ERROR("permute_to0231_k_tile_generic");
     } else {
-        AT_DISPATCH_FLOATING_TYPES(src.scalar_type(), "permute_to0231_k_tile_sm100", ([&] {
+        AT_DISPATCH_SWITCH(src.scalar_type(), "permute_to0231_k_tile_sm100", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
             launch_permute_to0231<TRANSP_WARPS_X_TILE_SM100, scalar_t>(src, dst);
         }));
         CHECK_ERROR("permute_to0231_k_tile_sm100");
@@ -153,12 +153,12 @@ at::Tensor permute_4D_to0312(at::Tensor src) {
 
     // to be further specialized for additional archs, if necessary
     if (ptxv < 100) {
-        AT_DISPATCH_FLOATING_TYPES(src.scalar_type(), "permute_to0312_k_tile_generic", ([&] {
+        AT_DISPATCH_SWITCH(src.scalar_type(), "permute_to0312_k_tile_generic", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
             launch_permute_to0312<TRANSP_WARPS_X_TILE_GENERIC, scalar_t>(src, dst);
         }));
         CHECK_ERROR("permute_to0312_k_tile_generic");
     } else {
-        AT_DISPATCH_FLOATING_TYPES(src.scalar_type(), "permute_to0312_k_tile_sm100", ([&] {
+        AT_DISPATCH_SWITCH(src.scalar_type(), "permute_to0312_k_tile_sm100", AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
             launch_permute_to0312<TRANSP_WARPS_X_TILE_SM100, scalar_t>(src, dst);
         }));
         CHECK_ERROR("permute_to0312_k_tile_sm100");
