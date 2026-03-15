@@ -113,7 +113,7 @@ class DiscreteContinuousEncoder(nn.Module):
 
         dtype = x.dtype
 
-        with amp.autocast(device_type="cuda", enabled=False):
+        with amp.autocast(device_type="musa", enabled=False):
             x = x.float()
             x = self.conv(x)
             x = x.to(dtype=dtype)
@@ -196,7 +196,7 @@ class DiscreteContinuousDecoder(nn.Module):
 
         dtype = x.dtype
 
-        with amp.autocast(device_type="cuda", enabled=False):
+        with amp.autocast(device_type="musa", enabled=False):
             x = x.float()
             x = self.upsample(x)
             x = self.conv(x)

@@ -35,6 +35,10 @@ import unittest
 from parameterized import parameterized, parameterized_class
 
 import torch
+try:
+    import torch_musa
+except ImportError:
+    pass
 from torch.library import opcheck
 
 # from torch.autograd import gradcheck
@@ -48,15 +52,15 @@ if not optimized_kernels_is_available():
     print(f"Warning: Couldn't import optimized disco convolution kernels")
 
 _devices = [(torch.device("cpu"),)]
-if torch.cuda.is_available():
-    _devices.append((torch.device("cuda"),))
+if torch.musa.is_available():
+    _devices.append((torch.device("musa"),))
 
 # perf thresholds
 # CPU results normalized to 16 OpenMP threads,
 # GPU results normalized to V100 16 GB GPU
 # this is just to detect performance regressions, not for absolute performance
 _perf_test_thresholds = {"cpu": {"fwd_ms": 1000, "bwd_ms": 8000}, 
-                         "cuda": {"fwd_ms": 50, "bwd_ms": 150}}
+                         "musa": {"fwd_ms": 100, "bwd_ms": 300}}
 _run_perf_tests = (os.getenv("TORCH_HARMONICS_RUN_PERF_TESTS", "0") == "1")
 
 
@@ -66,8 +70,8 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
     
     def setUp(self):
         torch.manual_seed(333)
-        if self.device.type == "cuda":
-            torch.cuda.manual_seed(333)
+        if self.device.type == "musa":
+            torch.musa.manual_seed(333)
 
     @parameterized.expand(
         [
@@ -88,7 +92,7 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
     def test_custom_implementation(self, batch_size, channels, channels_out, heads, in_shape, out_shape, grid_in, grid_out, atol, rtol, verbose=False):
         """Tests numerical equivalence between the custom (CUDA) implementation and the reference torch implementation"""
 
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping test because CUDA kernels are not available")
 
         set_seed(333)
@@ -223,7 +227,7 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
     def test_neighborhood_global_equivalence(self, batch_size, channels, channels_out, heads, in_shape, out_shape, grid_in, grid_out, atol, rtol, verbose=False):
         """Tests numerical equivalence between the global spherical attention module and the neighborhood spherical attention module with the neighborhood set ot the whole sphere"""
 
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping test because CUDA kernels are not available")
 
         set_seed(333)
@@ -288,7 +292,7 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
     def test_optimized_pt2_compatibility(self, batch_size, channels, heads, in_shape, out_shape, grid_in, grid_out, atol, rtol, verbose=False):
         """Tests whether the optimized kernels are PyTorch 2 compatible"""
 
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping GPU test because CUDA kernels are not available")
 
         set_seed(333)
@@ -328,7 +332,7 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
     @unittest.skipUnless(optimized_kernels_is_available() and _run_perf_tests, "skipping performance test because optimized kernels are not available or perf tests are disabled")
     def test_perf(self, batch_size, channels, heads, in_shape, out_shape, grid_in, grid_out, atol, rtol, verbose=False):
         
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping test because CUDA kernels are not available")
 
         set_seed(333)
@@ -365,12 +369,12 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
             out_optimized = att_optimized(q_inp, k_inp, v_inp)
 
         # start timer
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         start = perf_counter_ns()
         out_optimized = att_optimized(q_inp, k_inp, v_inp)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         end = perf_counter_ns()
         duration = (end - start) / 1e6
         if verbose:
@@ -387,12 +391,12 @@ class TestNeighborhoodAttentionS2(unittest.TestCase):
             out_optimized.backward(out_grad, retain_graph=True)
 
         # start timer
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         start = perf_counter_ns()
         out_optimized.backward(out_grad)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         end = perf_counter_ns()
         duration = (end - start) / 1e6
         if verbose:

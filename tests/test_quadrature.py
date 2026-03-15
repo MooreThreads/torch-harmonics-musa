@@ -33,13 +33,17 @@ import unittest
 from parameterized import parameterized, parameterized_class
 
 import torch
+try:
+    import torch_musa
+except ImportError:
+    pass
 import torch_harmonics as th
 
 from testutils import set_seed, compare_tensors
 
 _devices = [(torch.device("cpu"),)]
-if torch.cuda.is_available():
-    _devices.append((torch.device("cuda"),))
+if torch.musa.is_available():
+    _devices.append((torch.device("musa"),))
 
 
 @parameterized_class(("device"), _devices)

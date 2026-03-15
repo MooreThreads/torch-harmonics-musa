@@ -224,7 +224,7 @@ def train_model(
             if normalization_out is not None:
                 tar = normalization_out(tar)
 
-            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=(amp_mode != "none")):
+            with torch.autocast(device_type="musa", dtype=amp_dtype, enabled=(amp_mode != "none")):
                 prd = model(inp)
                 loss = loss_fn(prd, tar.unsqueeze(-3), mask)
 
@@ -273,7 +273,7 @@ def train_model(
                 if normalization_out is not None:
                     tar = normalization_out(tar)
 
-                with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=(amp_mode != "none")):
+                with torch.autocast(device_type="musa", dtype=amp_dtype, enabled=(amp_mode != "none")):
                     prd = model(inp)
                     loss = loss_fn(prd, tar.unsqueeze(-3), mask)
 
@@ -349,19 +349,19 @@ def main(
     local_rank = 0
     logging = True
     if ddp:
-        dist.init_process_group(backend="nccl")
+        dist.init_process_group(backend="mccl")
         world_size = dist.get_world_size()
-        local_rank = dist.get_rank() % torch.cuda.device_count()
+        local_rank = dist.get_rank() % torch.musa.device_count()
         logging = dist.get_rank() == 0
 
     # set seed
     torch.manual_seed(333)
-    torch.cuda.manual_seed(333)
+    torch.musa.manual_seed(333)
 
     # set device
-    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
-    if torch.cuda.is_available():
-        torch.cuda.set_device(device.index)
+    device = torch.device(f"musa:{local_rank}" if torch.musa.is_available() else "cpu")
+    if torch.musa.is_available():
+        torch.musa.set_device(device.index)
 
     # create dataset directory if it doesn't exist
     if logging:
@@ -504,7 +504,7 @@ def main(
                 run = None
 
             # optimizer:
-            optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01, foreach=torch.cuda.is_available())
+            optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01, foreach=torch.musa.is_available())
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min")
             gscaler = torch.GradScaler("cuda", enabled=(amp_mode == "fp16"))
 
@@ -542,7 +542,7 @@ def main(
 
         # set seed
         torch.manual_seed(333)
-        torch.cuda.manual_seed(333)
+        torch.musa.manual_seed(333)
 
         with torch.inference_mode():
 

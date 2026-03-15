@@ -442,14 +442,14 @@ class SpectralConvS2(nn.Module):
         x = x.float()
         residual = x
 
-        with torch.autocast(device_type="cuda", enabled=False):
+        with torch.autocast(device_type="musa", enabled=False):
             x = self.forward_transform(x)
             if self.scale_residual:
                 residual = self.inverse_transform(x)
 
         x = torch.einsum(self.contract_func, x, self.weight)
 
-        with torch.autocast(device_type="cuda", enabled=False):
+        with torch.autocast(device_type="musa", enabled=False):
             x = self.inverse_transform(x)
 
         if hasattr(self, "bias"):

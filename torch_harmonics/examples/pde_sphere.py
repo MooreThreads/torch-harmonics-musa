@@ -183,7 +183,7 @@ class SphereSolver(nn.Module):
         lons = self.lons.squeeze() - torch.pi
         lats = self.lats.squeeze()
 
-        if data.is_cuda:
+        if data.is_privateuseone:
             data = data.cpu()
             lons = lons.cpu()
             lats = lats.cpu()

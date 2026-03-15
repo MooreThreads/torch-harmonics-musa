@@ -33,19 +33,23 @@ import os
 from packaging import version
 
 import torch
+try:
+    import torch_musa
+except ImportError:
+    pass
 import torch.distributed as dist
 import torch_harmonics.distributed as thd
 
 def set_seed(seed=333):
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
+    if torch.musa.is_available():
+        torch.musa.manual_seed(seed)
     return
 
 
 def disable_tf32():
     # the api for this was changed lately in pytorch
-    if torch.cuda.is_available():
+    if torch.musa.is_available():
         if version.parse(torch.__version__) >= version.parse("2.9.0"):
             torch.backends.cuda.matmul.fp32_precision = "ieee"
             torch.backends.cudnn.fp32_precision = "ieee"
@@ -65,13 +69,13 @@ def setup_distributed_context(ctx):
     master_address = os.getenv("MASTER_ADDR", "localhost")
     ctx.world_size = ctx.grid_size_h * ctx.grid_size_w
 
-    if torch.cuda.is_available():
+    if torch.musa.is_available():
         if ctx.world_rank == 0:
             print("Running test on GPU")
-        local_rank = ctx.world_rank % torch.cuda.device_count()
-        ctx.device = torch.device(f"cuda:{local_rank}")
-        torch.cuda.set_device(local_rank)
-        proc_backend = "nccl"
+        local_rank = ctx.world_rank % torch.musa.device_count()
+        ctx.device = torch.device(f"musa:{local_rank}")
+        torch.musa.set_device(local_rank)
+        proc_backend = "mccl"
     else:
         if ctx.world_rank == 0:
             print("Running test on CPU")
@@ -121,7 +125,7 @@ def setup_distributed_context(ctx):
         print(f"Running distributed tests on grid H x W = {ctx.grid_size_h} x {ctx.grid_size_w}")
 
     thd.init(ctx.h_group, ctx.w_group)
-    torch.cuda.set_device(ctx.device.index)
+    torch.musa.set_device(ctx.device.index)
 
     return
 

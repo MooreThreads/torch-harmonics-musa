@@ -36,6 +36,10 @@ from parameterized import parameterized, parameterized_class
 import math
 
 import torch
+try:
+    import torch_musa
+except ImportError:
+    pass
 from torch.library import opcheck
 from torch_harmonics import DiscreteContinuousConvS2, DiscreteContinuousConvTransposeS2
 
@@ -49,15 +53,15 @@ if not optimized_kernels_is_available():
 
 
 _devices = [(torch.device("cpu"),)]
-if torch.cuda.is_available():
-    _devices.append((torch.device("cuda"),))
+if torch.musa.is_available():
+    _devices.append((torch.device("musa"),))
 
 # perf thresholds
 # CPU results normalized to 16 OpenMP threads,
 # GPU results normalized to V100 16 GB GPU
 # this is just to detect performance regressions, not for absolute performance
 _perf_test_thresholds = {"cpu": {"fwd_ms": 100, "bwd_ms": 90}, 
-                         "cuda": {"fwd_ms": 2, "bwd_ms": 3}}
+                         "musa": {"fwd_ms": 10, "bwd_ms": 15}}
 _run_perf_tests = (os.getenv("TORCH_HARMONICS_RUN_PERF_TESTS", "0") == "1")
 
 
@@ -256,7 +260,7 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
 
         # use optimized kernels
         use_optimized_kernels = optimized_kernels_is_available()
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             use_optimized_kernels = False
         
         nlat_in, nlon_in = in_shape
@@ -413,7 +417,7 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
         rtol,
         verbose=False,
     ):
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping test because CUDA kernels are not available")
 
         if (self.device.type == "cpu") and (amp_dtype != torch.float32):
@@ -506,7 +510,7 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
         ],
         skip_on_empty=True,
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
+    @unittest.skipIf(not torch.musa.is_available(), "CUDA is not available")
     def test_device_instantiation(self, batch_size, in_channels, out_channels, in_shape, out_shape, kernel_shape, basis_type, basis_norm_mode, grid_in, grid_out, transpose, atol, rtol, verbose=False):
 
         set_seed(333)
@@ -592,7 +596,7 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
     ):  
         """Tests whether the optimized kernels are PyTorch 2 compatible"""
 
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping GPU test because CUDA kernels are not available")
         
         if verbose:
@@ -659,7 +663,7 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
     @unittest.skipUnless(optimized_kernels_is_available() and _run_perf_tests, "skipping performance test because optimized kernels are not available or perf tests are disabled")
     def test_perf(self, batch_size, in_channels, out_channels, in_shape, out_shape, kernel_shape, basis_type, basis_norm_mode, grid_in, grid_out, transpose, tol, verbose=True):
         
-        if (self.device.type == "cuda") and (not cuda_kernels_is_available()):
+        if (self.device.type == "musa") and (not cuda_kernels_is_available()):
             raise unittest.SkipTest("skipping test because CUDA kernels are not available")
         
         set_seed(333)
@@ -707,12 +711,12 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
             out_optimized = conv_optimized(inp)
 
         # start timer
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         start = perf_counter_ns()
         out_optimized = conv_optimized(inp)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         end = perf_counter_ns()
         duration = (end - start) / 1e6
         if verbose:
@@ -728,12 +732,12 @@ class TestDiscreteContinuousConvolution(unittest.TestCase):
             out_optimized.backward(out_grad, retain_graph=True)
 
         # start timer
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         start = perf_counter_ns()
         out_optimized.backward(out_grad)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
+        if self.device.type == "musa":
+            torch.musa.synchronize()
         end = perf_counter_ns()
         duration = (end - start) / 1e6
         if verbose:

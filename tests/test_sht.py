@@ -33,14 +33,18 @@ import unittest
 from parameterized import parameterized, parameterized_class
 import math
 import torch
+try:
+    import torch_musa
+except ImportError:
+    pass
 from torch.autograd import gradcheck
 import torch_harmonics as th
 
 from testutils import set_seed, compare_tensors
 
 _devices = [(torch.device("cpu"),)]
-if torch.cuda.is_available():
-    _devices.append((torch.device("cuda"),))
+if torch.musa.is_available():
+    _devices.append((torch.device("musa"),))
 
 
 class TestLegendrePolynomials(unittest.TestCase):
@@ -212,7 +216,7 @@ class TestSphericalHarmonicTransform(unittest.TestCase):
         ],
         skip_on_empty=True,
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA is not available")
+    @unittest.skipIf(not torch.musa.is_available(), "CUDA is not available")
     def test_device_instantiation(self, nlat, nlon, norm, grid, atol, rtol, verbose=False):
         if verbose:
             print(f"Testing device instantiation of real-valued SHT on {nlat}x{nlon} {grid} grid with {norm} normalization")

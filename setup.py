@@ -37,25 +37,34 @@ from setuptools.command.install import install
 
 # some code to handle the building of custom modules
 FORCE_CUDA_EXTENSION = os.getenv("FORCE_CUDA_EXTENSION", "0") == "1"
-BUILD_CPP = BUILD_CUDA = False
+FORCE_MUSA = os.getenv("FORCE_MUSA", "0") == "1"
+BUILD_CPP = BUILD_CUDA = BUILD_MUSA = False
 
 # try to import torch
 try:
     import torch
 
     print(f"setup.py with torch {torch.__version__}")
-    from torch.utils.cpp_extension import BuildExtension, CppExtension
 
-    BUILD_CPP = True
-    from torch.utils.cpp_extension import CUDA_HOME, CUDAExtension
+    if FORCE_MUSA:
+        import torch_musa
+        from torch_musa.utils.musa_extension import MUSAExtension, BuildExtension
+        from torch.utils.cpp_extension import CppExtension
+        BUILD_CPP = True
+        BUILD_MUSA = True
+        print("FORCE_MUSA=1: Building with MUSA extensions")
+    else:
+        from torch.utils.cpp_extension import BuildExtension, CppExtension
+        BUILD_CPP = True
+        from torch.utils.cpp_extension import CUDA_HOME, CUDAExtension
+        BUILD_CUDA = FORCE_CUDA_EXTENSION or (torch.cuda.is_available() and (CUDA_HOME is not None))
 
-    BUILD_CUDA = FORCE_CUDA_EXTENSION or (torch.cuda.is_available() and (CUDA_HOME is not None))
 except (ImportError, TypeError, AssertionError, AttributeError) as e:
     warnings.warn(f"building custom extensions skipped: {e}")
 
 def get_compile_args(module_name):
     """If user runs build with TORCH_HARMONICS_DEBUG=1 set, it will use debugging flags to build"""
-    
+
     debug_mode = os.environ.get('TORCH_HARMONICS_DEBUG', '0') == '1'
     profile_mode = os.environ.get('TORCH_HARMONICS_PROFILE', '0') == '1'
     openmp_mode = os.getenv('TORCH_HARMONICS_ENABLE_OPENMP', '0') == '1'
@@ -64,42 +73,57 @@ def get_compile_args(module_name):
     if openmp_mode:
         cpp_extra_flags.append("-fopenmp")
 
-    nvcc_extra_flags = []
-    if profile_mode:
-        nvcc_extra_flags.append("-lineinfo")
-        nvcc_extra_flags.append("-Xptxas=-v")
-        
-    if debug_mode:
-        print(f"WARNING: Compiling {module_name} with debugging flags")
-        return {
-            'cxx': ['-g', '-O0', '-Wall'],
-            'nvcc': ['-g', '-G', '-O0'] + nvcc_extra_flags
-        }
+    if FORCE_MUSA:
+        # mcc compiler flags (no nvcc-specific flags)
+        if debug_mode:
+            print(f"WARNING: Compiling {module_name} with debugging flags")
+            return {
+                'cxx': ['-g', '-O0', '-Wall'],
+                'mcc': ['-g', '-O0']
+            }
+        else:
+            print(f"NOTE: Compiling {module_name} with release flags")
+            return {
+                'cxx': ['-O3', "-ffast-math", "-DNDEBUG"] + cpp_extra_flags,
+                'mcc': ['-O3', "-DNDEBUG"]
+            }
     else:
-        print(f"NOTE: Compiling {module_name} with release flags")
-        return {
-            'cxx': ['-O3', "-ffast-math", "-DNDEBUG"] + cpp_extra_flags,
-            'nvcc': ['-O3', "-DNDEBUG"] + nvcc_extra_flags
-        }
+        nvcc_extra_flags = []
+        if profile_mode:
+            nvcc_extra_flags.append("-lineinfo")
+            nvcc_extra_flags.append("-Xptxas=-v")
+
+        if debug_mode:
+            print(f"WARNING: Compiling {module_name} with debugging flags")
+            return {
+                'cxx': ['-g', '-O0', '-Wall'],
+                'nvcc': ['-g', '-G', '-O0'] + nvcc_extra_flags
+            }
+        else:
+            print(f"NOTE: Compiling {module_name} with release flags")
+            return {
+                'cxx': ['-O3', "-ffast-math", "-DNDEBUG"] + cpp_extra_flags,
+                'nvcc': ['-O3', "-DNDEBUG"] + nvcc_extra_flags
+            }
 
 def get_helpers_compile_args():
     return {
         'cxx': [
-            f'-DBUILD_CPP={1 if BUILD_CPP else 0}', 
-            f'-DBUILD_CUDA={1 if BUILD_CUDA else 0}'
-        ], 
+            f'-DBUILD_CPP={1 if BUILD_CPP else 0}',
+            f'-DBUILD_CUDA={1 if (BUILD_CUDA or BUILD_MUSA) else 0}'
+        ],
     }
 
 def get_ext_modules():
     """Get list of extension modules to compile."""
-    
+
     ext_modules = []
     cmdclass = {}
 
     print(f"Compiling helper routines for torch-harmonics.")
     ext_modules.append(
         CppExtension(
-            "disco_helpers", 
+            "disco_helpers",
             [
                 "torch_harmonics/disco/csrc/disco_helpers.cpp",
             ],
@@ -109,7 +133,7 @@ def get_ext_modules():
 
     ext_modules.append(
         CppExtension(
-            "attention_helpers", 
+            "attention_helpers",
             [
                 "torch_harmonics/attention/csrc/attention_helpers.cpp",
             ],
@@ -118,14 +142,59 @@ def get_ext_modules():
     )
 
     if BUILD_CPP:
-        # DISCO
-        # Create a single extension that includes both CPU and CUDA code
-        disco_sources = [
-            "torch_harmonics/disco/csrc/disco_interface.cpp",
-            "torch_harmonics/disco/csrc/disco_cpu.cpp"
-        ]
-        
-        if BUILD_CUDA:
+        if BUILD_MUSA:
+            # MUSA build path: use _musa directories with .mu files
+            print(f"Compiling custom MUSA kernels for torch-harmonics.")
+
+            # DISCO
+            disco_sources = [
+                "torch_harmonics/disco/csrc_musa/disco_interface.cpp",
+                "torch_harmonics/disco/csrc_musa/disco_cpu.cpp",
+                "torch_harmonics/disco/csrc_musa/disco_cuda_fwd.mu",
+                "torch_harmonics/disco/csrc_musa/disco_cuda_bwd.mu",
+            ]
+            ext_modules.append(
+                MUSAExtension(
+                    "torch_harmonics.disco._C",
+                    disco_sources,
+                    include_dirs=[
+                        os.path.abspath("torch_harmonics/disco/csrc_musa"),
+                        os.path.abspath("torch_harmonics/disco/csrc"),
+                    ],
+                    extra_compile_args=get_compile_args("disco")
+                )
+            )
+            cmdclass["build_ext"] = BuildExtension
+
+            # ATTENTION
+            attention_sources = [
+                "torch_harmonics/attention/csrc_musa/attention_interface.cpp",
+                "torch_harmonics/attention/csrc_musa/attention_cpu_fwd.cpp",
+                "torch_harmonics/attention/csrc_musa/attention_cpu_bwd.cpp",
+                "torch_harmonics/attention/csrc_musa/attention_cuda_utils.mu",
+                "torch_harmonics/attention/csrc_musa/attention_cuda_fwd.mu",
+                "torch_harmonics/attention/csrc_musa/attention_cuda_bwd.mu",
+            ]
+            ext_modules.append(
+                MUSAExtension(
+                    "torch_harmonics.attention._C",
+                    attention_sources,
+                    include_dirs=[
+                        os.path.abspath("torch_harmonics/attention/csrc_musa"),
+                        os.path.abspath("torch_harmonics/attention/csrc"),
+                    ],
+                    extra_compile_args=get_compile_args("attention")
+                )
+            )
+            cmdclass["build_ext"] = BuildExtension
+
+        elif BUILD_CUDA:
+            # Original CUDA build path
+            # DISCO
+            disco_sources = [
+                "torch_harmonics/disco/csrc/disco_interface.cpp",
+                "torch_harmonics/disco/csrc/disco_cpu.cpp"
+            ]
             print(f"Compiling custom CUDA kernels for torch-harmonics.")
             disco_sources.extend([
                 "torch_harmonics/disco/csrc/disco_cuda_fwd.cu",
@@ -138,25 +207,14 @@ def get_ext_modules():
                     extra_compile_args=get_compile_args("disco")
                 )
             )
-        else:
-            ext_modules.append(
-                CppExtension(
-                    "torch_harmonics.disco._C", 
-                    disco_sources,
-                    extra_compile_args=get_compile_args("disco")
-                )
-            )
-        cmdclass["build_ext"] = BuildExtension
+            cmdclass["build_ext"] = BuildExtension
 
-        # ATTENTION
-        # Create a single extension that includes both CPU and CUDA code
-        attention_sources = [
-            "torch_harmonics/attention/csrc/attention_interface.cpp",
-            "torch_harmonics/attention/csrc/attention_cpu_fwd.cpp",
-            "torch_harmonics/attention/csrc/attention_cpu_bwd.cpp",
-        ]
-
-        if BUILD_CUDA:
+            # ATTENTION
+            attention_sources = [
+                "torch_harmonics/attention/csrc/attention_interface.cpp",
+                "torch_harmonics/attention/csrc/attention_cpu_fwd.cpp",
+                "torch_harmonics/attention/csrc/attention_cpu_bwd.cpp",
+            ]
             print(f"Compiling attention CUDA kernels for torch-harmonics.")
             attention_sources.extend([
                 "torch_harmonics/attention/csrc/attention_cuda_utils.cu",
@@ -170,7 +228,27 @@ def get_ext_modules():
                     extra_compile_args=get_compile_args("attention")
                 )
             )
+            cmdclass["build_ext"] = BuildExtension
         else:
+            # CPU-only build
+            disco_sources = [
+                "torch_harmonics/disco/csrc/disco_interface.cpp",
+                "torch_harmonics/disco/csrc/disco_cpu.cpp"
+            ]
+            ext_modules.append(
+                CppExtension(
+                    "torch_harmonics.disco._C",
+                    disco_sources,
+                    extra_compile_args=get_compile_args("disco")
+                )
+            )
+            cmdclass["build_ext"] = BuildExtension
+
+            attention_sources = [
+                "torch_harmonics/attention/csrc/attention_interface.cpp",
+                "torch_harmonics/attention/csrc/attention_cpu_fwd.cpp",
+                "torch_harmonics/attention/csrc/attention_cpu_bwd.cpp",
+            ]
             ext_modules.append(
                 CppExtension(
                     "torch_harmonics.attention._C",
@@ -178,7 +256,7 @@ def get_ext_modules():
                     extra_compile_args=get_compile_args("attention")
                 )
             )
-        cmdclass["build_ext"] = BuildExtension
+            cmdclass["build_ext"] = BuildExtension
 
     return ext_modules, cmdclass
 

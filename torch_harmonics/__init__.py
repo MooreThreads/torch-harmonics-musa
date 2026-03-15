@@ -31,6 +31,11 @@
 
 __version__ = "0.8.1"
 
+try:
+    import torch_musa
+except ImportError:
+    pass
+
 from .truncation import truncate_sht
 from .quadrature import QuadratureS2
 from .sht import RealSHT, InverseRealSHT, RealVectorSHT, InverseRealVectorSHT

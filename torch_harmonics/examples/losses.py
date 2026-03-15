@@ -318,7 +318,7 @@ class W11LossS2(SphericalLossBase):
 
     def _compute_loss_term(self, prd: torch.Tensor, tar: torch.Tensor) -> torch.Tensor:
         prdtype = prd.dtype
-        with amp.autocast(device_type="cuda", enabled=False):
+        with amp.autocast(device_type="musa", enabled=False):
             prd = prd.to(torch.float32)
             prd_prime_fft2_phi_h = torch.fft.ifft2(1j * self.k_phi_mesh * torch.fft.fft2(prd)).real
             prd_prime_fft2_theta_h = torch.fft.ifft2(1j * self.k_theta_mesh * torch.fft.fft2(prd)).real

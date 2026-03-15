@@ -265,7 +265,7 @@ def train_model(
 
         for inp, tar in dataloader:
 
-            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=(amp_mode != "none")):
+            with torch.autocast(device_type="musa", dtype=amp_dtype, enabled=(amp_mode != "none")):
 
                 prd = model(inp)
                 for _ in range(nfuture):
@@ -358,12 +358,12 @@ def main(root_path, pretrain_epochs=100, finetune_epochs=10, batch_size=1, learn
 
     # set seed
     torch.manual_seed(333)
-    torch.cuda.manual_seed(333)
+    torch.musa.manual_seed(333)
 
     # set device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    if torch.cuda.is_available():
-        torch.cuda.set_device(device.index)
+    device = torch.device("musa:0" if torch.musa.is_available() else "cpu")
+    if torch.musa.is_available():
+        torch.musa.set_device(device.index)
 
     # 30 minute prediction steps. note: the attention models have "stability
     # issues" for dt=3600s, so we lower to 1800s. (solution falls apart using
@@ -502,7 +502,7 @@ def main(root_path, pretrain_epochs=100, finetune_epochs=10, batch_size=1, learn
 
         # set seed
         torch.manual_seed(333)
-        torch.cuda.manual_seed(333)
+        torch.musa.manual_seed(333)
 
         # run validation
         print(f"Validating {model_name}")

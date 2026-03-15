@@ -151,7 +151,7 @@ class SpectralConvS2(nn.Module):
         if hasattr(self, "spectral_bias"):
             integral = self.quadrature(x)
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="musa", enabled=False):
             x = self.sht(x).contiguous()
 
         # store the shapes
@@ -166,7 +166,7 @@ class SpectralConvS2(nn.Module):
         xp = self._contract_lwise(x, self.weight)
         x = xp.reshape(B, self.out_channels, H, W).contiguous()
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type="musa", enabled=False):
             x = self.isht(x)
 
         # convert datatype
